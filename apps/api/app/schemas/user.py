@@ -31,3 +31,30 @@ class UserRead(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# Auth schemas
+class UserRegister(BaseModel):
+    email: EmailStr
+    username: str
+    password: str
+    display_name: Optional[str] = None
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class GitHubOAuthRequest(BaseModel):
+    code: str

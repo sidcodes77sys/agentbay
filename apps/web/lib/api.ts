@@ -42,13 +42,21 @@ export interface AgentsListResponse {
   limit: number;
 }
 
-async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+async function apiFetch<T>(
+  path: string,
+  options?: RequestInit & { accessToken?: string }
+): Promise<T> {
+  const { accessToken, ...rest } = options ?? {};
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(rest.headers as Record<string, string>),
+  };
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
   const res = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options?.headers,
-    },
-    ...options,
+    ...rest,
+    headers,
   });
 
   if (!res.ok) {
@@ -71,11 +79,19 @@ export const api = {
       return apiFetch<AgentsListResponse>(`/api/agents${qs ? `?${qs}` : ''}`);
     },
     get: (id: string) => apiFetch<Agent>(`/api/agents/${id}`),
-    create: (data: Partial<Agent>) =>
-      apiFetch<Agent>('/api/agents', { method: 'POST', body: JSON.stringify(data) }),
-    update: (id: string, data: Partial<Agent>) =>
-      apiFetch<Agent>(`/api/agents/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-    delete: (id: string) =>
-      apiFetch<void>(`/api/agents/${id}`, { method: 'DELETE' }),
+    create: (data: Partial<Agent>, accessToken: string) =>
+      apiFetch<Agent>('/api/agents', {
+        method: 'POST',
+        body: JSON.stringify(data),
+        accessToken,
+      }),
+    update: (id: string, data: Partial<Agent>, accessToken: string) =>
+      apiFetch<Agent>(`/api/agents/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+        accessToken,
+      }),
+    delete: (id: string, accessToken: string) =>
+      apiFetch<void>(`/api/agents/${id}`, { method: 'DELETE', accessToken }),
   },
 };

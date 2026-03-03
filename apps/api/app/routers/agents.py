@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.dependencies import get_current_user
+from app.models.user import User
 from app.schemas.agent import AgentCreate, AgentListResponse, AgentRead, AgentUpdate
 from app.services.agent_service import AgentService
 
@@ -41,12 +43,11 @@ def get_agent(agent_id: UUID, db: Session = Depends(get_db)):
 def create_agent(
     payload: AgentCreate,
     db: Session = Depends(get_db),
-    # TODO: replace with real auth dependency
-    author_id: UUID = Query(..., description="Author user ID (temporary)"),
+    current_user: User = Depends(get_current_user),
 ):
-    """Publish a new agent."""
+    """Publish a new agent (requires authentication)."""
     service = AgentService(db)
-    return service.create_agent(payload, author_id=author_id)
+    return service.create_agent(payload, author_id=current_user.id)
 
 
 @router.put("/{agent_id}", response_model=AgentRead)
@@ -54,19 +55,30 @@ def update_agent(
     agent_id: UUID,
     payload: AgentUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
-    """Update an existing agent."""
+    """Update an existing agent (requires authentication)."""
     service = AgentService(db)
-    agent = service.update_agent(agent_id, payload)
+    agent = service.get_agent(agent_id)
     if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
-    return agent
+    if agent.author_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    updated = service.update_agent(agent_id, payload)
+    return updated
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_agent(agent_id: UUID, db: Session = Depends(get_db)):
-    """Delete an agent."""
+def delete_agent(
+    agent_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Delete an agent (requires authentication)."""
     service = AgentService(db)
-    deleted = service.delete_agent(agent_id)
-    if not deleted:
+    agent = service.get_agent(agent_id)
+    if not agent:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    if agent.author_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized")
+    service.delete_agent(agent_id)

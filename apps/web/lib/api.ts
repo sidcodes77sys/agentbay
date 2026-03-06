@@ -58,10 +58,16 @@ export interface AgentUpdatePayload {
 }
 
 export interface AgentsListParams {
+  q?: string;
   search?: string;
   category?: string;
-  page?: number;
+  pricing_type?: string;
+  tags?: string;
+  author_id?: string;
+  sort_by?: string;
+  skip?: number;
   limit?: number;
+  page?: number;
 }
 
 export interface AgentsListResponse {
@@ -69,6 +75,10 @@ export interface AgentsListResponse {
   total: number;
   page: number;
   limit: number;
+}
+
+export interface CategoryStatsResponse {
+  stats: Record<string, number>;
 }
 
 async function apiFetch<T>(
@@ -105,7 +115,7 @@ export const api = {
     list: (params?: AgentsListParams) => {
       const qs = new URLSearchParams(
         Object.entries(params ?? {}).reduce<Record<string, string>>(
-          (acc, [k, v]) => (v !== undefined ? { ...acc, [k]: String(v) } : acc),
+          (acc, [k, v]) => (v !== undefined && v !== null && v !== '' ? { ...acc, [k]: String(v) } : acc),
           {}
         )
       ).toString();
@@ -129,5 +139,7 @@ export const api = {
       }),
     delete: (id: string, accessToken: string) =>
       apiFetch<void>(`/api/agents/${id}`, { method: 'DELETE', accessToken }),
+    categoryStats: () =>
+      apiFetch<CategoryStatsResponse>('/api/agents/categories/stats'),
   },
 };

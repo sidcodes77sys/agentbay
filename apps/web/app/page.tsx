@@ -1,60 +1,8 @@
 import Link from 'next/link';
 import { Button } from '@/components/ui/Button';
 import { AgentCard } from '@/components/AgentCard';
-import type { Agent } from '@/lib/api';
-
-const FEATURED_AGENTS: Agent[] = [
-  {
-    id: '1',
-    name: 'ResearchBot Pro',
-    slug: 'researchbot-pro',
-    description: 'Deep research assistant that scours the web and synthesizes findings into structured reports.',
-    category: 'research',
-    author: { id: 'a1', username: 'aibuilder', display_name: 'AI Builder' },
-    version: '1.2.0',
-    pricing_type: 'per_use',
-    price_per_use: 0.05,
-    rating: 4.8,
-    total_executions: 12400,
-    is_published: true,
-    tags: ['research', 'web', 'reports'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: '2',
-    name: 'CopyWriter AI',
-    slug: 'copywriter-ai',
-    description: 'Generates compelling marketing copy, blog posts, and social media content at scale.',
-    category: 'writing',
-    author: { id: 'a2', username: 'wordsmith', display_name: 'Wordsmith Labs' },
-    version: '2.0.1',
-    pricing_type: 'subscription',
-    monthly_price: 29,
-    rating: 4.6,
-    total_executions: 8900,
-    is_published: true,
-    tags: ['writing', 'marketing', 'content'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: '3',
-    name: 'DataSense',
-    slug: 'datasense',
-    description: 'Analyzes CSV/JSON data and produces charts, summaries, and actionable insights.',
-    category: 'data',
-    author: { id: 'a3', username: 'datawiz', display_name: 'DataWiz Inc.' },
-    version: '1.0.5',
-    pricing_type: 'free',
-    rating: 4.9,
-    total_executions: 31200,
-    is_published: true,
-    tags: ['data', 'analytics', 'charts'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-];
+import { HeroSearch } from '@/components/HeroSearch';
+import { api, type Agent } from '@/lib/api';
 
 const HOW_IT_WORKS = [
   {
@@ -77,7 +25,18 @@ const HOW_IT_WORKS = [
   },
 ];
 
-export default function HomePage() {
+async function getFeaturedAgents(): Promise<Agent[]> {
+  try {
+    const result = await api.agents.list({ sort_by: 'top_rated', limit: 3 });
+    return result.items;
+  } catch {
+    return [];
+  }
+}
+
+export default async function HomePage() {
+  const featuredAgents = await getFeaturedAgents();
+
   return (
     <div className="flex flex-col">
       {/* Hero Section */}
@@ -100,7 +59,11 @@ export default function HomePage() {
             Discover, deploy, and publish autonomous AI agents. From research and writing
             to data analysis and automation — find the right agent for every job.
           </p>
-          <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
+          {/* Hero search bar */}
+          <div className="mx-auto mt-10 max-w-xl">
+            <HeroSearch />
+          </div>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
             <Link href="/agents">
               <Button size="lg">Browse Agents</Button>
             </Link>
@@ -133,15 +96,25 @@ export default function HomePage() {
               <h2 className="text-3xl font-bold">Featured Agents</h2>
               <p className="mt-2 text-gray-400">Top-rated agents trusted by thousands of users</p>
             </div>
-            <Link href="/agents" className="text-indigo-400 hover:text-indigo-300 transition-colors">
+            <Link href="/agents" className="text-indigo-400 transition-colors hover:text-indigo-300">
               View all →
             </Link>
           </div>
-          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
-            {FEATURED_AGENTS.map((agent) => (
-              <AgentCard key={agent.id} agent={agent} />
-            ))}
-          </div>
+          {featuredAgents.length > 0 ? (
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3">
+              {featuredAgents.map((agent) => (
+                <AgentCard key={agent.id} agent={agent} />
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-gray-700 py-16 text-center">
+              <div className="text-4xl">🤖</div>
+              <p className="mt-4 text-gray-400">No agents published yet. Be the first!</p>
+              <Link href="/dashboard" className="mt-4 inline-block text-indigo-400 hover:text-indigo-300">
+                Publish an agent →
+              </Link>
+            </div>
+          )}
         </div>
       </section>
 
@@ -244,3 +217,4 @@ class ResearchAgent(Agent):
     </div>
   );
 }
+

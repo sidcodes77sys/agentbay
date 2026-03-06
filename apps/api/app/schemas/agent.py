@@ -10,7 +10,7 @@ from app.schemas.user import UserRead
 
 class AgentCreate(BaseModel):
     name: str
-    slug: str
+    slug: Optional[str] = None
     description: str
     long_description: Optional[str] = None
     category: AgentCategory = AgentCategory.other
@@ -18,6 +18,7 @@ class AgentCreate(BaseModel):
     pricing_type: PricingType = PricingType.free
     price_per_use: Optional[float] = None
     monthly_price: Optional[float] = None
+    is_published: bool = False
     tags: List[str] = []
     config_schema: Optional[Dict[str, Any]] = None
 

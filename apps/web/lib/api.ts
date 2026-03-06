@@ -28,6 +28,35 @@ export interface Agent {
   updated_at: string;
 }
 
+export interface AgentCreatePayload {
+  name: string;
+  slug?: string;
+  description: string;
+  long_description?: string;
+  category: string;
+  version?: string;
+  pricing_type: 'free' | 'per_use' | 'subscription';
+  price_per_use?: number | null;
+  monthly_price?: number | null;
+  is_published?: boolean;
+  tags?: string[];
+  config_schema?: Record<string, unknown> | null;
+}
+
+export interface AgentUpdatePayload {
+  name?: string;
+  description?: string;
+  long_description?: string;
+  category?: string;
+  version?: string;
+  pricing_type?: 'free' | 'per_use' | 'subscription';
+  price_per_use?: number | null;
+  monthly_price?: number | null;
+  is_published?: boolean;
+  tags?: string[];
+  config_schema?: Record<string, unknown> | null;
+}
+
 export interface AgentsListParams {
   search?: string;
   category?: string;
@@ -64,6 +93,10 @@ async function apiFetch<T>(
     throw new Error(error.detail || `HTTP ${res.status}`);
   }
 
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
+
   return res.json() as Promise<T>;
 }
 
@@ -79,13 +112,16 @@ export const api = {
       return apiFetch<AgentsListResponse>(`/api/agents${qs ? `?${qs}` : ''}`);
     },
     get: (id: string) => apiFetch<Agent>(`/api/agents/${id}`),
-    create: (data: Partial<Agent>, accessToken: string) =>
+    getBySlug: (slug: string) => apiFetch<Agent>(`/api/agents/slug/${slug}`),
+    me: (accessToken: string) =>
+      apiFetch<Agent[]>('/api/agents/me', { accessToken }),
+    create: (data: AgentCreatePayload, accessToken: string) =>
       apiFetch<Agent>('/api/agents', {
         method: 'POST',
         body: JSON.stringify(data),
         accessToken,
       }),
-    update: (id: string, data: Partial<Agent>, accessToken: string) =>
+    update: (id: string, data: AgentUpdatePayload, accessToken: string) =>
       apiFetch<Agent>(`/api/agents/${id}`, {
         method: 'PUT',
         body: JSON.stringify(data),

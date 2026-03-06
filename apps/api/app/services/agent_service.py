@@ -1,11 +1,12 @@
 import re
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from uuid import UUID
 
-from sqlalchemy import or_
+from sqlalchemy import cast, func, or_
 from sqlalchemy.orm import Session
+from sqlalchemy.types import Text
 
-from app.models.agent import Agent, AgentCategory
+from app.models.agent import Agent, AgentCategory, PricingType
 from app.schemas.agent import AgentCreate, AgentUpdate
 
 
@@ -34,28 +35,74 @@ class AgentService:
 
     def list_agents(
         self,
+        q: Optional[str] = None,
         search: Optional[str] = None,
         category: Optional[str] = None,
-        page: int = 1,
+        pricing_type: Optional[str] = None,
+        tags: Optional[str] = None,
+        author_id: Optional[UUID] = None,
+        sort_by: Optional[str] = None,
+        skip: int = 0,
         limit: int = 20,
+        page: Optional[int] = None,
     ) -> Tuple[List[Agent], int]:
         query = self.db.query(Agent).filter(Agent.is_published == True)  # noqa: E712
 
-        if search:
-            search_term = f"%{search}%"
+        # Support both `q` and legacy `search` parameter
+        search_term_str = q or search
+        if search_term_str:
+            search_term = f"%{search_term_str}%"
             query = query.filter(
                 or_(
                     Agent.name.ilike(search_term),
                     Agent.description.ilike(search_term),
+                    cast(Agent.tags, Text).ilike(search_term),
                 )
             )
 
         if category and category in [c.value for c in AgentCategory]:
             query = query.filter(Agent.category == category)
 
+        if pricing_type and pricing_type in [p.value for p in PricingType]:
+            query = query.filter(Agent.pricing_type == pricing_type)
+
+        if tags:
+            for tag in [t.strip() for t in tags.split(",") if t.strip()]:
+                query = query.filter(cast(Agent.tags, Text).ilike(f"%{tag}%"))
+
+        if author_id is not None:
+            query = query.filter(Agent.author_id == author_id)
+
+        # Sorting
+        sort_map = {
+            "newest": Agent.created_at.desc(),
+            "most_used": Agent.total_executions.desc(),
+            "top_rated": Agent.rating.desc(),
+            "name": Agent.name.asc(),
+        }
+        order_clause = sort_map.get(sort_by or "", Agent.created_at.desc())
+        query = query.order_by(order_clause)
+
         total = query.count()
-        items = query.offset((page - 1) * limit).limit(limit).all()
+
+        # Support both page-based and skip-based pagination
+        if page is not None:
+            offset = (page - 1) * limit
+        else:
+            offset = skip
+
+        items = query.offset(offset).limit(limit).all()
         return items, total
+
+    def get_category_stats(self) -> Dict[str, int]:
+        """Return count of published agents per category."""
+        rows = (
+            self.db.query(Agent.category, func.count(Agent.id).label("count"))
+            .filter(Agent.is_published == True)  # noqa: E712
+            .group_by(Agent.category)
+            .all()
+        )
+        return {row.category.value if hasattr(row.category, "value") else str(row.category): row.count for row in rows}
 
     def list_user_agents(self, author_id: UUID) -> List[Agent]:
         return self.db.query(Agent).filter(Agent.author_id == author_id).all()

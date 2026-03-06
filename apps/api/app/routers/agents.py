@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -7,26 +7,49 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.agent import AgentCreate, AgentListResponse, AgentRead, AgentUpdate
+from app.schemas.agent import AgentCreate, AgentListResponse, AgentRead, AgentUpdate, CategoryStatsResponse
 from app.services.agent_service import AgentService
 
 router = APIRouter()
 
 
+@router.get("/categories/stats", response_model=CategoryStatsResponse)
+def get_category_stats(db: Session = Depends(get_db)):
+    """Return the count of published agents per category."""
+    service = AgentService(db)
+    return CategoryStatsResponse(stats=service.get_category_stats())
+
+
 @router.get("", response_model=AgentListResponse)
 def list_agents(
-    search: Optional[str] = Query(None, description="Search query"),
+    q: Optional[str] = Query(None, description="Full-text search across name, description, and tags"),
+    search: Optional[str] = Query(None, description="Search query (legacy, use q instead)"),
     category: Optional[str] = Query(None, description="Filter by category"),
-    page: int = Query(1, ge=1, description="Page number"),
+    pricing_type: Optional[str] = Query(None, description="Filter by pricing type (free, per_use, subscription)"),
+    tags: Optional[str] = Query(None, description="Comma-separated list of tags to filter by"),
+    author_id: Optional[UUID] = Query(None, description="Filter by author UUID"),
+    sort_by: Optional[str] = Query(None, description="Sort by: newest, most_used, top_rated, name"),
+    skip: int = Query(0, ge=0, description="Number of items to skip"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
+    page: Optional[int] = Query(None, ge=1, description="Page number (overrides skip when provided)"),
     db: Session = Depends(get_db),
 ):
-    """List all published agents with optional search and filtering."""
+    """List all published agents with optional search, filtering, sorting, and pagination."""
     service = AgentService(db)
     items, total = service.list_agents(
-        search=search, category=category, page=page, limit=limit
+        q=q,
+        search=search,
+        category=category,
+        pricing_type=pricing_type,
+        tags=tags,
+        author_id=author_id,
+        sort_by=sort_by,
+        skip=skip,
+        limit=limit,
+        page=page,
     )
-    return AgentListResponse(items=items, total=total, page=page, limit=limit)
+    effective_page = page if page is not None else (skip // limit + 1)
+    return AgentListResponse(items=items, total=total, page=effective_page, limit=limit)
 
 
 @router.get("/me", response_model=List[AgentRead])

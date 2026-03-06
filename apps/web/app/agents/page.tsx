@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { AgentGrid } from '@/components/AgentGrid';
 import { SearchBar } from '@/components/SearchBar';
-import type { Agent } from '@/lib/api';
+import { api, type Agent } from '@/lib/api';
 
 const CATEGORIES = [
   { id: 'all', label: 'All' },
@@ -15,126 +16,111 @@ const CATEGORIES = [
   { id: 'other', label: 'Other' },
 ];
 
-const MOCK_AGENTS: Agent[] = [
-  {
-    id: '1',
-    name: 'ResearchBot Pro',
-    slug: 'researchbot-pro',
-    description: 'Deep research assistant that scours the web and synthesizes findings into structured reports.',
-    category: 'research',
-    author: { id: 'a1', username: 'aibuilder', display_name: 'AI Builder' },
-    version: '1.2.0',
-    pricing_type: 'per_use',
-    price_per_use: 0.05,
-    rating: 4.8,
-    total_executions: 12400,
-    is_published: true,
-    tags: ['research', 'web', 'reports'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: '2',
-    name: 'CopyWriter AI',
-    slug: 'copywriter-ai',
-    description: 'Generates compelling marketing copy, blog posts, and social media content at scale.',
-    category: 'writing',
-    author: { id: 'a2', username: 'wordsmith', display_name: 'Wordsmith Labs' },
-    version: '2.0.1',
-    pricing_type: 'subscription',
-    monthly_price: 29,
-    rating: 4.6,
-    total_executions: 8900,
-    is_published: true,
-    tags: ['writing', 'marketing', 'content'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: '3',
-    name: 'DataSense',
-    slug: 'datasense',
-    description: 'Analyzes CSV/JSON data and produces charts, summaries, and actionable insights.',
-    category: 'data',
-    author: { id: 'a3', username: 'datawiz', display_name: 'DataWiz Inc.' },
-    version: '1.0.5',
-    pricing_type: 'free',
-    rating: 4.9,
-    total_executions: 31200,
-    is_published: true,
-    tags: ['data', 'analytics', 'charts'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: '4',
-    name: 'AutoFlow',
-    slug: 'autoflow',
-    description: 'Automate repetitive workflows with natural language instructions. Connect to 100+ apps.',
-    category: 'automation',
-    author: { id: 'a4', username: 'flowmaster', display_name: 'FlowMaster' },
-    version: '3.1.0',
-    pricing_type: 'subscription',
-    monthly_price: 49,
-    rating: 4.7,
-    total_executions: 22100,
-    is_published: true,
-    tags: ['automation', 'workflow', 'integration'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: '5',
-    name: 'SupportGenius',
-    slug: 'supportgenius',
-    description: 'AI-powered customer support agent that handles tickets, FAQs, and escalations.',
-    category: 'customer_service',
-    author: { id: 'a5', username: 'supportlabs', display_name: 'Support Labs' },
-    version: '1.5.2',
-    pricing_type: 'per_use',
-    price_per_use: 0.02,
-    rating: 4.5,
-    total_executions: 45600,
-    is_published: true,
-    tags: ['support', 'customer-service', 'tickets'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
-  {
-    id: '6',
-    name: 'CodeReviewer',
-    slug: 'codereviewer',
-    description: 'Automated code review agent that checks for bugs, security issues, and style problems.',
-    category: 'other',
-    author: { id: 'a6', username: 'devtools', display_name: 'DevTools Co.' },
-    version: '2.3.0',
-    pricing_type: 'per_use',
-    price_per_use: 0.10,
-    rating: 4.8,
-    total_executions: 9800,
-    is_published: true,
-    tags: ['code', 'review', 'security'],
-    created_at: '2024-01-01T00:00:00Z',
-    updated_at: '2024-01-01T00:00:00Z',
-  },
+const PRICING_TYPES = [
+  { id: 'all', label: 'All Pricing' },
+  { id: 'free', label: 'Free' },
+  { id: 'per_use', label: 'Per Use' },
+  { id: 'subscription', label: 'Subscription' },
 ];
 
+const SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest' },
+  { value: 'top_rated', label: 'Top Rated' },
+  { value: 'most_used', label: 'Most Used' },
+  { value: 'name', label: 'A–Z' },
+];
+
+const PAGE_SIZE = 20;
+const SEARCH_DEBOUNCE_MS = 300;
+
 export default function AgentsPage() {
-  const [search, setSearch] = useState('');
-  const [activeCategory, setActiveCategory] = useState('all');
+  const router = useRouter();
+  const searchParams = useSearchParams();
 
-  const filtered = MOCK_AGENTS.filter((agent) => {
-    const matchesSearch =
-      search === '' ||
-      agent.name.toLowerCase().includes(search.toLowerCase()) ||
-      agent.description.toLowerCase().includes(search.toLowerCase()) ||
-      agent.tags.some((t) => t.toLowerCase().includes(search.toLowerCase()));
+  // Derive state from URL params
+  const [search, setSearch] = useState(searchParams.get('q') ?? '');
+  const [activeCategory, setActiveCategory] = useState(searchParams.get('category') ?? 'all');
+  const [activePricing, setActivePricing] = useState(searchParams.get('pricing') ?? 'all');
+  const [sortBy, setSortBy] = useState(searchParams.get('sort') ?? 'newest');
 
-    const matchesCategory =
-      activeCategory === 'all' || agent.category === activeCategory;
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [total, setTotal] = useState(0);
+  const [skip, setSkip] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [categoryStats, setCategoryStats] = useState<Record<string, number>>({});
 
-    return matchesSearch && matchesCategory;
-  });
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Sync URL params when filters change
+  const syncUrl = useCallback(
+    (q: string, category: string, pricing: string, sort: string) => {
+      const params = new URLSearchParams();
+      if (q) params.set('q', q);
+      if (category && category !== 'all') params.set('category', category);
+      if (pricing && pricing !== 'all') params.set('pricing', pricing);
+      if (sort && sort !== 'newest') params.set('sort', sort);
+      const qs = params.toString();
+      router.replace(`/agents${qs ? `?${qs}` : ''}`, { scroll: false });
+    },
+    [router]
+  );
+
+  const fetchAgents = useCallback(
+    async (q: string, category: string, pricing: string, sort: string, currentSkip: number, append: boolean) => {
+      try {
+        if (append) setLoadingMore(true);
+        else setLoading(true);
+
+        const result = await api.agents.list({
+          q: q || undefined,
+          category: category !== 'all' ? category : undefined,
+          pricing_type: pricing !== 'all' ? pricing : undefined,
+          sort_by: sort,
+          skip: currentSkip,
+          limit: PAGE_SIZE,
+        });
+
+        setTotal(result.total);
+        setAgents((prev) => (append ? [...prev, ...result.items] : result.items));
+      } catch {
+        if (!append) setAgents([]);
+      } finally {
+        setLoading(false);
+        setLoadingMore(false);
+      }
+    },
+    []
+  );
+
+  // Load category stats on mount
+  useEffect(() => {
+    api.agents
+      .categoryStats()
+      .then((res) => setCategoryStats(res.stats))
+      .catch(() => {});
+  }, []);
+
+  // Initial + filter change fetch (debounced for search)
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setSkip(0);
+      fetchAgents(search, activeCategory, activePricing, sortBy, 0, false);
+      syncUrl(search, activeCategory, activePricing, sortBy);
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search, activeCategory, activePricing, sortBy, fetchAgents, syncUrl]);
+
+  const handleLoadMore = () => {
+    const nextSkip = skip + PAGE_SIZE;
+    setSkip(nextSkip);
+    fetchAgents(search, activeCategory, activePricing, sortBy, nextSkip, true);
+  };
+
+  const hasMore = agents.length < total;
 
   return (
     <div className="mx-auto max-w-7xl px-6 py-12 lg:px-8">
@@ -143,32 +129,105 @@ export default function AgentsPage() {
         <p className="mt-2 text-gray-400">Discover AI agents built by the community</p>
       </div>
 
-      <SearchBar value={search} onChange={setSearch} placeholder="Search agents..." />
+      <SearchBar value={search} onChange={setSearch} placeholder="Search agents by name, description, or tag…" />
 
       {/* Category tabs */}
       <div className="mt-6 flex flex-wrap gap-2">
-        {CATEGORIES.map(({ id, label }) => (
-          <button
-            key={id}
-            onClick={() => setActiveCategory(id)}
-            className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
-              activeCategory === id
-                ? 'bg-indigo-600 text-white'
-                : 'border border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
-            }`}
+        {CATEGORIES.map(({ id, label }) => {
+          const count = id === 'all'
+            ? Object.values(categoryStats).reduce((a, b) => a + b, 0)
+            : categoryStats[id];
+          return (
+            <button
+              key={id}
+              onClick={() => setActiveCategory(id)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors ${
+                activeCategory === id
+                  ? 'bg-indigo-600 text-white'
+                  : 'border border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+              }`}
+            >
+              {label}
+              {count !== undefined && (
+                <span className={`ml-1.5 text-xs ${activeCategory === id ? 'text-indigo-200' : 'text-gray-600'}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Pricing filter + Sort */}
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap gap-2">
+          {PRICING_TYPES.map(({ id, label }) => (
+            <button
+              key={id}
+              onClick={() => setActivePricing(id)}
+              className={`rounded-lg px-3 py-1 text-xs font-medium transition-colors ${
+                activePricing === id
+                  ? id === 'free'
+                    ? 'bg-green-600 text-white'
+                    : id === 'per_use'
+                    ? 'bg-blue-600 text-white'
+                    : id === 'subscription'
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-indigo-600 text-white'
+                  : 'border border-gray-700 bg-gray-800/50 text-gray-400 hover:bg-gray-800 hover:text-white'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div className="ml-auto">
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value)}
+            className="rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-sm text-gray-300 focus:border-indigo-500 focus:outline-none"
           >
-            {label}
-          </button>
-        ))}
+            {SORT_OPTIONS.map(({ value, label }) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
-      <div className="mt-4 text-sm text-gray-500">
-        {filtered.length} agent{filtered.length !== 1 ? 's' : ''} found
-      </div>
+      {/* Result count */}
+      {!loading && (
+        <div className="mt-4 text-sm text-gray-500">
+          {total} agent{total !== 1 ? 's' : ''} found
+        </div>
+      )}
 
+      {/* Agent grid */}
       <div className="mt-6">
-        <AgentGrid agents={filtered} />
+        {loading ? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-56 animate-pulse rounded-xl border border-gray-800 bg-gray-900/50" />
+            ))}
+          </div>
+        ) : (
+          <AgentGrid agents={agents} />
+        )}
       </div>
+
+      {/* Load More */}
+      {!loading && hasMore && (
+        <div className="mt-10 text-center">
+          <button
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            className="rounded-xl border border-gray-700 bg-gray-800/50 px-8 py-3 text-sm font-medium text-gray-300 transition-colors hover:bg-gray-800 hover:text-white disabled:opacity-50"
+          >
+            {loadingMore ? 'Loading…' : `Load More (${total - agents.length} remaining)`}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
+

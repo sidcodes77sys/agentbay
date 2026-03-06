@@ -66,3 +66,9 @@ class AgentListResponse(BaseModel):
     total: int
     page: int
     limit: int
+
+
+class CategoryStatsResponse(BaseModel):
+    """Count of published agents per category. Keys are category names, values are agent counts."""
+
+    stats: Dict[str, int]

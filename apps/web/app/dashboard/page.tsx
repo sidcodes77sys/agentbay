@@ -182,8 +182,8 @@ export default function DashboardPage() {
                   </div>
                 </div>
                 <div className="ml-4 flex items-center gap-6 text-sm text-gray-400">
-                  <span className="hidden sm:inline">⚡ {agent.total_executions.toLocaleString()} runs</span>
-                  <span className="hidden sm:inline">⭐ {agent.rating.toFixed(1)}</span>
+                  <span className="hidden sm:inline" aria-label={`${agent.total_executions.toLocaleString()} runs`}>⚡ {agent.total_executions.toLocaleString()} runs</span>
+                  <span className="hidden sm:inline" aria-label={`Rating: ${agent.rating.toFixed(1)}`}>⭐ {agent.rating.toFixed(1)}</span>
                   <div className="flex gap-2">
                     <Button
                       variant="ghost"

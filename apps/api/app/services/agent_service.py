@@ -69,7 +69,7 @@ class AgentService:
     def create_agent(self, payload: AgentCreate, author_id: UUID) -> Agent:
         data = payload.model_dump()
         raw_slug = data.pop("slug") or _slugify(payload.name)
-        base_slug = _slugify(raw_slug) if raw_slug else _slugify(payload.name)
+        base_slug = _slugify(raw_slug)
         data["slug"] = self._unique_slug(base_slug)
         agent = Agent(**data, author_id=author_id)
         self.db.add(agent)

@@ -51,7 +51,8 @@ function formatPrice(agent: Agent) {
   return 'Contact';
 }
 
-export default function AgentDetailPage({ params }: { params: { id: string } }) {
+export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  void params; // params.id available via useParams in client components
   const agent = MOCK_AGENT; // TODO: fetch from API using params.id
 
   return (

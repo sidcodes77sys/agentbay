@@ -1,3 +1,3 @@
-from app.routers import agents, users, execute
+from app.routers import agents, auth, users, execute
 
-__all__ = ["agents", "users", "execute"]
+__all__ = ["agents", "auth", "users", "execute"]

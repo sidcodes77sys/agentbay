@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -27,6 +27,26 @@ def list_agents(
         search=search, category=category, page=page, limit=limit
     )
     return AgentListResponse(items=items, total=total, page=page, limit=limit)
+
+
+@router.get("/me", response_model=List[AgentRead])
+def get_my_agents(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get all agents belonging to the current authenticated user."""
+    service = AgentService(db)
+    return service.list_user_agents(current_user.id)
+
+
+@router.get("/slug/{slug}", response_model=AgentRead)
+def get_agent_by_slug(slug: str, db: Session = Depends(get_db)):
+    """Get a single agent by slug."""
+    service = AgentService(db)
+    agent = service.get_agent_by_slug(slug)
+    if not agent:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found")
+    return agent
 
 
 @router.get("/{agent_id}", response_model=AgentRead)

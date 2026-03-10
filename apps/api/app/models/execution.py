@@ -1,7 +1,7 @@
 import uuid
 import enum
 
-from sqlalchemy import Column, Integer, DateTime, Enum as SAEnum, ForeignKey, JSON
+from sqlalchemy import Column, Integer, Text, DateTime, Enum as SAEnum, ForeignKey, JSON
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -27,6 +27,7 @@ class Execution(Base):
     status = Column(
         SAEnum(ExecutionStatus), nullable=False, default=ExecutionStatus.pending
     )
+    error_message = Column(Text, nullable=True)
     duration_ms = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 

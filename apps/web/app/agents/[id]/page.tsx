@@ -7,6 +7,7 @@ import { useSession } from 'next-auth/react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { AgentCard } from '@/components/AgentCard';
+import { AgentRunPanel } from '@/components/AgentRunPanel';
 import { api, type Agent } from '@/lib/api';
 
 function formatPrice(agent: Agent) {
@@ -170,15 +171,15 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             <div className="mb-4 text-3xl font-bold text-indigo-400">
               {formatPrice(agent)}
             </div>
-            <Button className="w-full" size="lg">
-              Run Agent
-            </Button>
             <p className="mt-3 text-center text-xs text-gray-500">
               {agent.pricing_type === 'free'
                 ? 'Always free to use'
                 : 'Billed after each successful execution'}
             </p>
           </div>
+
+          {/* Run Agent panel */}
+          <AgentRunPanel agent={agent} />
 
           {/* Stats */}
           <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-6">
@@ -248,4 +249,5 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
     </div>
   );
 }
+
 

@@ -1,13 +1,13 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useSession } from 'next-auth/react';
+import { useSession, signIn } from 'next-auth/react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { AgentCard } from '@/components/AgentCard';
-import { api, type Agent } from '@/lib/api';
+import { api, type Agent, type Execution } from '@/lib/api';
 
 function formatPrice(agent: Agent) {
   if (agent.pricing_type === 'free') return 'Free';
@@ -16,11 +16,332 @@ function formatPrice(agent: Agent) {
   return 'Contact';
 }
 
+// ── Status badge ──────────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: Execution['status'] }) {
+  const map: Record<Execution['status'], string> = {
+    pending: 'bg-yellow-900/40 text-yellow-400 border-yellow-800',
+    running: 'bg-blue-900/40 text-blue-400 border-blue-800 animate-pulse',
+    completed: 'bg-green-900/40 text-green-400 border-green-800',
+    failed: 'bg-red-900/40 text-red-400 border-red-800',
+  };
+  return (
+    <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${map[status]}`}>
+      {status}
+    </span>
+  );
+}
+
+// ── Schema field types ────────────────────────────────────────────────────────
+interface FieldSchema {
+  type?: string;
+  title?: string;
+  description?: string;
+  enum?: string[];
+  default?: unknown;
+}
+
+interface ConfigSchema {
+  properties?: Record<string, FieldSchema>;
+  required?: string[];
+}
+
+// ── Dynamic input form ────────────────────────────────────────────────────────
+function DynamicForm({
+  schema,
+  values,
+  onChange,
+  disabled,
+}: {
+  schema: ConfigSchema;
+  values: Record<string, unknown>;
+  onChange: (key: string, value: unknown) => void;
+  disabled: boolean;
+}) {
+  const properties = schema.properties ?? {};
+  const required = schema.required ?? [];
+
+  if (Object.keys(properties).length === 0) {
+    return (
+      <p className="text-sm text-gray-500">
+        This agent requires no input parameters.
+      </p>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {Object.entries(properties).map(([key, field]) => {
+        const label = field.title ?? key;
+        const isRequired = required.includes(key);
+        const inputId = `field-${key}`;
+        const currentValue = values[key] ?? field.default ?? '';
+
+        if (field.enum) {
+          return (
+            <div key={key}>
+              <label htmlFor={inputId} className="mb-1 block text-sm font-medium">
+                {label}
+                {isRequired && <span className="ml-1 text-red-400">*</span>}
+              </label>
+              {field.description && (
+                <p className="mb-1 text-xs text-gray-500">{field.description}</p>
+              )}
+              <select
+                id={inputId}
+                disabled={disabled}
+                value={String(currentValue)}
+                onChange={(e) => onChange(key, e.target.value)}
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">— Select —</option>
+                {field.enum.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            </div>
+          );
+        }
+
+        if (field.type === 'boolean') {
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <input
+                id={inputId}
+                type="checkbox"
+                disabled={disabled}
+                checked={Boolean(currentValue)}
+                onChange={(e) => onChange(key, e.target.checked)}
+                className="h-4 w-4 rounded border-gray-600 bg-gray-800 text-indigo-500 focus:ring-indigo-500 disabled:opacity-50"
+              />
+              <label htmlFor={inputId} className="text-sm font-medium">
+                {label}
+                {isRequired && <span className="ml-1 text-red-400">*</span>}
+              </label>
+              {field.description && (
+                <span className="text-xs text-gray-500">{field.description}</span>
+              )}
+            </div>
+          );
+        }
+
+        if (field.type === 'number' || field.type === 'integer') {
+          return (
+            <div key={key}>
+              <label htmlFor={inputId} className="mb-1 block text-sm font-medium">
+                {label}
+                {isRequired && <span className="ml-1 text-red-400">*</span>}
+              </label>
+              {field.description && (
+                <p className="mb-1 text-xs text-gray-500">{field.description}</p>
+              )}
+              <input
+                id={inputId}
+                type="number"
+                disabled={disabled}
+                value={String(currentValue)}
+                onChange={(e) =>
+                  onChange(key, e.target.value === '' ? '' : Number(e.target.value))
+                }
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          );
+        }
+
+        // Long text (textarea) heuristic: description or text area hint
+        const isLong =
+          field.type === 'text' ||
+          (field.description?.toLowerCase().includes('long') ?? false) ||
+          key === 'content' ||
+          key === 'text' ||
+          key === 'prompt' ||
+          key === 'message';
+
+        if (isLong) {
+          return (
+            <div key={key}>
+              <label htmlFor={inputId} className="mb-1 block text-sm font-medium">
+                {label}
+                {isRequired && <span className="ml-1 text-red-400">*</span>}
+              </label>
+              {field.description && (
+                <p className="mb-1 text-xs text-gray-500">{field.description}</p>
+              )}
+              <textarea
+                id={inputId}
+                disabled={disabled}
+                value={String(currentValue)}
+                onChange={(e) => onChange(key, e.target.value)}
+                rows={4}
+                className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+              />
+            </div>
+          );
+        }
+
+        return (
+          <div key={key}>
+            <label htmlFor={inputId} className="mb-1 block text-sm font-medium">
+              {label}
+              {isRequired && <span className="ml-1 text-red-400">*</span>}
+            </label>
+            {field.description && (
+              <p className="mb-1 text-xs text-gray-500">{field.description}</p>
+            )}
+            <input
+              id={inputId}
+              type="text"
+              disabled={disabled}
+              value={String(currentValue)}
+              onChange={(e) => onChange(key, e.target.value)}
+              className="w-full rounded-lg border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white focus:border-indigo-500 focus:outline-none disabled:opacity-50"
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── Execution panel ───────────────────────────────────────────────────────────
+function ExecutionPanel({ agent, accessToken }: { agent: Agent; accessToken?: string }) {
+  const schema = (agent.config_schema ?? {}) as ConfigSchema;
+  const properties = schema.properties ?? {};
+
+  // Build initial form values from schema defaults
+  const buildDefaults = () =>
+    Object.entries(properties).reduce<Record<string, unknown>>((acc, [key, field]) => {
+      if (field.default !== undefined) acc[key] = field.default;
+      return acc;
+    }, {});
+
+  const [formValues, setFormValues] = useState<Record<string, unknown>>(buildDefaults());
+  const [execution, setExecution] = useState<Execution | null>(null);
+  const [running, setRunning] = useState(false);
+  const [elapsed, setElapsed] = useState(0);
+  const [runError, setRunError] = useState('');
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const handleFieldChange = (key: string, value: unknown) => {
+    setFormValues((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const startTimer = () => {
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed((s) => s + 1), 1000);
+  };
+
+  const stopTimer = () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+  };
+
+  const handleRun = async () => {
+    if (!accessToken) {
+      signIn();
+      return;
+    }
+    setRunError('');
+    setExecution(null);
+    setRunning(true);
+    startTimer();
+    try {
+      const result = await api.executions.run(agent.id, formValues, accessToken);
+      setExecution(result);
+    } catch (err) {
+      setRunError(err instanceof Error ? err.message : 'Execution failed');
+    } finally {
+      stopTimer();
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-6">
+      <h2 className="mb-4 text-xl font-semibold">Run Agent</h2>
+
+      {/* Dynamic form */}
+      <DynamicForm
+        schema={schema}
+        values={formValues}
+        onChange={handleFieldChange}
+        disabled={running}
+      />
+
+      {/* Run button */}
+      <div className="mt-6">
+        {!accessToken ? (
+          <button
+            onClick={() => signIn()}
+            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
+          >
+            Sign in to Run
+          </button>
+        ) : (
+          <button
+            onClick={handleRun}
+            disabled={running}
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {running ? (
+              <>
+                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+                Running agent… {elapsed}s
+              </>
+            ) : (
+              '▶ Run Agent'
+            )}
+          </button>
+        )}
+      </div>
+
+      {/* Error */}
+      {runError && (
+        <div className="mt-4 rounded-lg border border-red-800 bg-red-900/20 p-4 text-sm text-red-300">
+          {runError}
+        </div>
+      )}
+
+      {/* Result */}
+      {execution && (
+        <div
+          className={`mt-6 rounded-lg border p-4 ${
+            execution.status === 'completed'
+              ? 'border-green-800 bg-green-900/10'
+              : 'border-red-800 bg-red-900/10'
+          }`}
+        >
+          <div className="mb-2 flex items-center justify-between">
+            <span className="text-sm font-medium">Result</span>
+            <div className="flex items-center gap-2">
+              <StatusBadge status={execution.status} />
+              {execution.duration_ms != null && (
+                <span className="text-xs text-gray-500">
+                  {(execution.duration_ms / 1000).toFixed(1)}s
+                </span>
+              )}
+            </div>
+          </div>
+          <pre className="overflow-x-auto rounded bg-gray-950 p-3 text-xs leading-relaxed text-gray-300">
+            {JSON.stringify(execution.output_data, null, 2)}
+          </pre>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function AgentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
   const { data: session } = useSession();
   const router = useRouter();
   const currentUserId = (session?.user as { id?: string })?.id;
+  const accessToken = (session as { accessToken?: string })?.accessToken;
 
   const [agent, setAgent] = useState<Agent | null>(null);
   const [relatedAgents, setRelatedAgents] = useState<Agent[]>([]);
@@ -109,7 +430,6 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
           <div className="mb-6 flex flex-wrap gap-2">
             <Badge variant="category">{agent.category.replace('_', ' ')}</Badge>
-            {/* Clickable tag chips */}
             {agent.tags.map((tag) => (
               <button
                 key={tag}
@@ -133,17 +453,10 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             </div>
           )}
 
-          {/* Input schema */}
-          {agent.config_schema && (
-            <div className="mt-8">
-              <h2 className="mb-4 text-xl font-semibold">Input Parameters</h2>
-              <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-6">
-                <pre className="overflow-x-auto text-sm text-gray-300">
-                  {JSON.stringify(agent.config_schema, null, 2)}
-                </pre>
-              </div>
-            </div>
-          )}
+          {/* Execution panel */}
+          <div className="mt-8">
+            <ExecutionPanel agent={agent} accessToken={accessToken} />
+          </div>
 
           {/* Related agents */}
           {relatedAgents.length > 0 && (
@@ -170,10 +483,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
             <div className="mb-4 text-3xl font-bold text-indigo-400">
               {formatPrice(agent)}
             </div>
-            <Button className="w-full" size="lg">
-              Run Agent
-            </Button>
-            <p className="mt-3 text-center text-xs text-gray-500">
+            <p className="text-center text-xs text-gray-500">
               {agent.pricing_type === 'free'
                 ? 'Always free to use'
                 : 'Billed after each successful execution'}
@@ -248,4 +558,3 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
     </div>
   );
 }
-

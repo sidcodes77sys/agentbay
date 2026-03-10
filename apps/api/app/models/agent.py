@@ -62,3 +62,5 @@ class Agent(Base):
     # Relationships
     author = relationship("User", back_populates="agents")
     executions = relationship("Execution", back_populates="agent", lazy="dynamic")
+    transactions = relationship("Transaction", back_populates="agent", lazy="dynamic")
+    subscriptions = relationship("Subscription", back_populates="agent", lazy="dynamic")

@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import engine, Base
-from app.routers import agents, users, execute, auth
+from app.routers import agents, users, execute, auth, billing
 
 # Create all database tables on startup
 Base.metadata.create_all(bind=engine)
@@ -28,6 +28,7 @@ app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
 app.include_router(agents.router, prefix="/api/agents", tags=["agents"])
 app.include_router(users.router, prefix="/api/users", tags=["users"])
 app.include_router(execute.router, prefix="/api", tags=["execute"])
+app.include_router(billing.router, prefix="/api/billing", tags=["billing"])
 
 
 @app.get("/", tags=["health"])

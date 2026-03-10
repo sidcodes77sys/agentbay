@@ -102,6 +102,74 @@ export interface ExecutionList {
   limit: number;
 }
 
+// Billing types
+export type TransactionStatus = 'pending' | 'completed' | 'failed' | 'refunded';
+export type PaymentType = 'one_time' | 'subscription';
+export type SubscriptionStatus = 'active' | 'canceled' | 'past_due' | 'expired';
+
+export interface Transaction {
+  id: string;
+  user_id: string;
+  agent_id: string;
+  execution_id?: string | null;
+  stripe_payment_intent_id?: string | null;
+  stripe_subscription_id?: string | null;
+  amount: number;
+  platform_fee: number;
+  developer_payout: number;
+  currency: string;
+  status: TransactionStatus;
+  payment_type: PaymentType;
+  created_at: string;
+  agent_name?: string | null;
+}
+
+export interface TransactionList {
+  items: Transaction[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface Subscription {
+  id: string;
+  user_id: string;
+  agent_id: string;
+  stripe_subscription_id: string;
+  stripe_customer_id: string;
+  status: SubscriptionStatus;
+  current_period_start?: string | null;
+  current_period_end?: string | null;
+  created_at: string;
+  updated_at: string;
+  agent_name?: string | null;
+}
+
+export interface SubscriptionList {
+  items: Subscription[];
+  total: number;
+}
+
+export interface CreatePaymentIntentResponse {
+  client_secret: string;
+  payment_intent_id: string;
+  amount: number;
+  currency: string;
+}
+
+export interface CreateSubscriptionResponse {
+  subscription_id: string;
+  client_secret?: string | null;
+  status: string;
+}
+
+export interface DeveloperEarnings {
+  total_earned: number;
+  this_month: number;
+  pending_payout: number;
+  by_agent: Array<{ agent_id: string; agent_name: string; total: number }>;
+}
+
 async function apiFetch<T>(
   path: string,
   options?: RequestInit & { accessToken?: string }
@@ -191,4 +259,47 @@ export const api = {
     get: (executionId: string, accessToken: string) =>
       apiFetch<Execution>(`/api/executions/${executionId}`, { accessToken }),
   },
+  billing: {
+    createPaymentIntent: (agentId: string, accessToken: string) =>
+      apiFetch<CreatePaymentIntentResponse>('/api/billing/create-payment-intent', {
+        method: 'POST',
+        body: JSON.stringify({ agent_id: agentId }),
+        accessToken,
+      }),
+    createSubscription: (agentId: string, accessToken: string) =>
+      apiFetch<CreateSubscriptionResponse>('/api/billing/create-subscription', {
+        method: 'POST',
+        body: JSON.stringify({ agent_id: agentId }),
+        accessToken,
+      }),
+    cancelSubscription: (subscriptionId: string, accessToken: string) =>
+      apiFetch<{ message: string; subscription_id: string; status: string }>(
+        `/api/billing/cancel-subscription/${subscriptionId}`,
+        { method: 'POST', accessToken }
+      ),
+    transactions: (accessToken: string, params?: { skip?: number; limit?: number; page?: number }) => {
+      const qs = new URLSearchParams(
+        Object.entries(params ?? {}).reduce<Record<string, string>>(
+          (acc, [k, v]) => (v !== undefined && v !== null ? { ...acc, [k]: String(v) } : acc),
+          {}
+        )
+      ).toString();
+      return apiFetch<TransactionList>(`/api/billing/transactions${qs ? `?${qs}` : ''}`, { accessToken });
+    },
+    subscriptions: (accessToken: string) =>
+      apiFetch<SubscriptionList>('/api/billing/subscriptions', { accessToken }),
+    developerEarnings: (accessToken: string) =>
+      apiFetch<DeveloperEarnings>('/api/billing/developer/earnings', { accessToken }),
+    developerTransactions: (accessToken: string, params?: { skip?: number; limit?: number; page?: number }) => {
+      const qs = new URLSearchParams(
+        Object.entries(params ?? {}).reduce<Record<string, string>>(
+          (acc, [k, v]) => (v !== undefined && v !== null ? { ...acc, [k]: String(v) } : acc),
+          {}
+        )
+      ).toString();
+      return apiFetch<TransactionList>(`/api/billing/developer/transactions${qs ? `?${qs}` : ''}`, { accessToken });
+    },
+  },
 };
+
+

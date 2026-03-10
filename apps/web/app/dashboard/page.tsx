@@ -117,9 +117,14 @@ export default function DashboardPage() {
           <h1 className="text-4xl font-bold">Developer Dashboard</h1>
           <p className="mt-2 text-gray-400">Manage your published agents and track performance</p>
         </div>
-        <Link href="/agents/publish">
-          <Button>+ Publish New Agent</Button>
-        </Link>
+        <div className="flex gap-3">
+          <Link href="/dashboard/executions">
+            <Button variant="outline">⚡ Execution History</Button>
+          </Link>
+          <Link href="/agents/publish">
+            <Button>+ Publish New Agent</Button>
+          </Link>
+        </div>
       </div>
 
       {actionError && (

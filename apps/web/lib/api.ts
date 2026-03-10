@@ -81,6 +81,41 @@ export interface CategoryStatsResponse {
   stats: Record<string, number>;
 }
 
+// ---------------------------------------------------------------------------
+// Execution types
+// ---------------------------------------------------------------------------
+
+export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface Execution {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  input_data: Record<string, unknown>;
+  output_data?: Record<string, unknown> | null;
+  status: ExecutionStatus;
+  error_message?: string | null;
+  duration_ms?: number | null;
+  created_at: string;
+}
+
+export interface ExecutionListResponse {
+  items: Execution[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export interface ExecutionListParams {
+  agent_id?: string;
+  status?: ExecutionStatus;
+  skip?: number;
+  limit?: number;
+  page?: number;
+}
+
+// ---------------------------------------------------------------------------
+
 async function apiFetch<T>(
   path: string,
   options?: RequestInit & { accessToken?: string }
@@ -114,10 +149,9 @@ export const api = {
   agents: {
     list: (params?: AgentsListParams) => {
       const qs = new URLSearchParams(
-        Object.entries(params ?? {}).reduce<Record<string, string>>(
-          (acc, [k, v]) => (v !== undefined && v !== null && v !== '' ? { ...acc, [k]: String(v) } : acc),
-          {}
-        )
+        Object.entries(params ?? {})
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => [k, String(v)])
       ).toString();
       return apiFetch<AgentsListResponse>(`/api/agents${qs ? `?${qs}` : ''}`);
     },
@@ -141,5 +175,23 @@ export const api = {
       apiFetch<void>(`/api/agents/${id}`, { method: 'DELETE', accessToken }),
     categoryStats: () =>
       apiFetch<CategoryStatsResponse>('/api/agents/categories/stats'),
+  },
+  executions: {
+    run: (agentId: string, inputData: Record<string, unknown>, accessToken: string) =>
+      apiFetch<Execution>(`/api/execute/${agentId}`, {
+        method: 'POST',
+        body: JSON.stringify({ input_data: inputData }),
+        accessToken,
+      }),
+    list: (params: ExecutionListParams, accessToken: string) => {
+      const qs = new URLSearchParams(
+        Object.entries(params)
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => [k, String(v)])
+      ).toString();
+      return apiFetch<ExecutionListResponse>(`/api/executions${qs ? `?${qs}` : ''}`, { accessToken });
+    },
+    get: (id: string, accessToken: string) =>
+      apiFetch<Execution>(`/api/executions/${id}`, { accessToken }),
   },
 };

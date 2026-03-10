@@ -4,10 +4,21 @@ import { use, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSession, signIn } from 'next-auth/react';
+import { loadStripe } from '@stripe/stripe-js';
+import {
+  Elements,
+  PaymentElement,
+  useStripe,
+  useElements,
+} from '@stripe/react-stripe-js';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { AgentCard } from '@/components/AgentCard';
-import { api, type Agent, type Execution } from '@/lib/api';
+import { api, type Agent, type Execution, type Subscription } from '@/lib/api';
+
+const stripePromise = loadStripe(
+  process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''
+);
 
 function formatPrice(agent: Agent) {
   if (agent.pricing_type === 'free') return 'Free';
@@ -205,12 +216,216 @@ function DynamicForm({
   );
 }
 
+// ── Stripe payment form (inner, must be inside <Elements>) ────────────────────
+function PaymentForm({
+  amount,
+  currency,
+  onSuccess,
+  onCancel,
+}: {
+  amount: number;
+  currency: string;
+  onSuccess: () => void;
+  onCancel: () => void;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState('');
+
+  const handlePay = async () => {
+    if (!stripe || !elements) return;
+    setPaying(true);
+    setPayError('');
+    const { error } = await stripe.confirmPayment({
+      elements,
+      redirect: 'if_required',
+    });
+    if (error) {
+      setPayError(error.message ?? 'Payment failed');
+      setPaying(false);
+    } else {
+      onSuccess();
+    }
+  };
+
+  return (
+    <div>
+      <div className="mb-4 rounded-lg border border-indigo-800 bg-indigo-900/20 p-3 text-center">
+        <span className="text-lg font-bold text-indigo-300">
+          {new Intl.NumberFormat('en-US', { style: 'currency', currency: currency.toUpperCase() }).format(amount)}
+        </span>
+        <p className="mt-0.5 text-xs text-gray-400">One-time charge for this run</p>
+      </div>
+      <div className="mb-4 rounded-lg border border-gray-700 bg-gray-800 p-3">
+        <PaymentElement />
+      </div>
+      {payError && (
+        <p className="mb-3 text-sm text-red-400">{payError}</p>
+      )}
+      <div className="flex gap-3">
+        <Button variant="outline" onClick={onCancel} className="flex-1" disabled={paying}>
+          Cancel
+        </Button>
+        <button
+          onClick={handlePay}
+          disabled={!stripe || paying}
+          className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {paying ? (
+            <>
+              <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              Processing…
+            </>
+          ) : (
+            '💳 Pay & Run'
+          )}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Payment modal (for per-use agents) ───────────────────────────────────────
+function PaymentModal({
+  clientSecret,
+  amount,
+  currency,
+  onSuccess,
+  onCancel,
+}: {
+  clientSecret: string;
+  amount: number;
+  currency: string;
+  onSuccess: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+        <div className="mb-6 flex items-center gap-3">
+          <span className="text-2xl">💳</span>
+          <div>
+            <h3 className="text-lg font-semibold">Payment Required</h3>
+            <p className="text-sm text-gray-400">Enter your card details to run this agent</p>
+          </div>
+        </div>
+        <Elements
+          stripe={stripePromise}
+          options={{
+            clientSecret,
+            appearance: { theme: 'night', variables: { colorPrimary: '#6366f1' } },
+          }}
+        >
+          <PaymentForm
+            amount={amount}
+            currency={currency}
+            onSuccess={onSuccess}
+            onCancel={onCancel}
+          />
+        </Elements>
+      </div>
+    </div>
+  );
+}
+
+// ── Subscription modal ────────────────────────────────────────────────────────
+function SubscriptionModal({
+  agent,
+  clientSecret,
+  onSuccess,
+  onCancel,
+}: {
+  agent: Agent;
+  clientSecret: string | null;
+  onSuccess: () => void;
+  onCancel: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState('');
+
+  // If no client_secret, subscription was activated immediately (e.g. trial)
+  if (!clientSecret) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+        <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl text-center">
+          <div className="mb-4 text-4xl">✅</div>
+          <h3 className="text-lg font-semibold">Subscription Activated</h3>
+          <p className="mt-2 text-sm text-gray-400">
+            Your subscription to <strong>{agent.name}</strong> is now active.
+          </p>
+          <Button onClick={onSuccess} className="mt-6 w-full">Run Agent</Button>
+        </div>
+      </div>
+    );
+  }
+
+  const handleConfirm = async () => {
+    const stripe = await stripePromise;
+    if (!stripe) return;
+    setConfirming(true);
+    setError('');
+    const { error: stripeError } = await stripe.confirmPayment({
+      clientSecret,
+      confirmParams: { return_url: window.location.href },
+      redirect: 'if_required',
+    });
+    if (stripeError) {
+      setError(stripeError.message ?? 'Payment failed');
+      setConfirming(false);
+    } else {
+      onSuccess();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+      <div className="w-full max-w-md rounded-xl border border-gray-700 bg-gray-900 p-6 shadow-2xl">
+        <div className="mb-6 flex items-center gap-3">
+          <span className="text-2xl">🔄</span>
+          <div>
+            <h3 className="text-lg font-semibold">Subscribe to {agent.name}</h3>
+            <p className="text-sm text-gray-400">
+              ${agent.monthly_price}/month · Cancel anytime
+            </p>
+          </div>
+        </div>
+        {error && <p className="mb-3 text-sm text-red-400">{error}</p>}
+        <div className="flex gap-3">
+          <Button variant="outline" onClick={onCancel} className="flex-1" disabled={confirming}>
+            Cancel
+          </Button>
+          <button
+            onClick={handleConfirm}
+            disabled={confirming}
+            className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-purple-500 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {confirming ? 'Processing…' : `Subscribe · $${agent.monthly_price}/mo`}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Execution panel ───────────────────────────────────────────────────────────
-function ExecutionPanel({ agent, accessToken }: { agent: Agent; accessToken?: string }) {
+function ExecutionPanel({
+  agent,
+  accessToken,
+  activeSubscription,
+  onSubscribed,
+}: {
+  agent: Agent;
+  accessToken?: string;
+  activeSubscription: Subscription | null;
+  onSubscribed: () => void;
+}) {
   const schema = (agent.config_schema ?? {}) as ConfigSchema;
   const properties = schema.properties ?? {};
 
-  // Build initial form values from schema defaults
   const buildDefaults = () =>
     Object.entries(properties).reduce<Record<string, unknown>>((acc, [key, field]) => {
       if (field.default !== undefined) acc[key] = field.default;
@@ -222,6 +437,19 @@ function ExecutionPanel({ agent, accessToken }: { agent: Agent; accessToken?: st
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [runError, setRunError] = useState('');
+
+  // Payment modal state
+  const [paymentModal, setPaymentModal] = useState<{
+    clientSecret: string;
+    amount: number;
+    currency: string;
+  } | null>(null);
+
+  // Subscription modal state
+  const [subscriptionModal, setSubscriptionModal] = useState<{
+    clientSecret: string | null;
+  } | null>(null);
+
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const handleFieldChange = (key: string, value: unknown) => {
@@ -237,11 +465,8 @@ function ExecutionPanel({ agent, accessToken }: { agent: Agent; accessToken?: st
     if (timerRef.current) clearInterval(timerRef.current);
   };
 
-  const handleRun = async () => {
-    if (!accessToken) {
-      signIn();
-      return;
-    }
+  const executeAgent = async () => {
+    if (!accessToken) return;
     setRunError('');
     setExecution(null);
     setRunning(true);
@@ -257,81 +482,174 @@ function ExecutionPanel({ agent, accessToken }: { agent: Agent; accessToken?: st
     }
   };
 
+  const handleRun = async () => {
+    if (!accessToken) {
+      signIn();
+      return;
+    }
+
+    if (agent.pricing_type === 'free') {
+      await executeAgent();
+      return;
+    }
+
+    if (agent.pricing_type === 'per_use') {
+      try {
+        const intent = await api.billing.createPaymentIntent(agent.id, accessToken);
+        setPaymentModal({
+          clientSecret: intent.client_secret,
+          amount: intent.amount,
+          currency: intent.currency,
+        });
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : 'Failed to create payment');
+      }
+      return;
+    }
+
+    if (agent.pricing_type === 'subscription') {
+      if (activeSubscription) {
+        await executeAgent();
+        return;
+      }
+      try {
+        const sub = await api.billing.createSubscription(agent.id, accessToken);
+        setSubscriptionModal({ clientSecret: sub.client_secret ?? null });
+      } catch (err) {
+        setRunError(err instanceof Error ? err.message : 'Failed to create subscription');
+      }
+      return;
+    }
+  };
+
+  const buttonLabel = () => {
+    if (agent.pricing_type === 'free') return '▶ Run Agent';
+    if (agent.pricing_type === 'per_use')
+      return `💳 Pay $${agent.price_per_use} & Run`;
+    if (agent.pricing_type === 'subscription') {
+      if (activeSubscription) return '▶ Run Agent';
+      return `🔄 Subscribe $${agent.monthly_price}/mo & Run`;
+    }
+    return '▶ Run Agent';
+  };
+
   return (
-    <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-6">
-      <h2 className="mb-4 text-xl font-semibold">Run Agent</h2>
+    <>
+      {paymentModal && (
+        <PaymentModal
+          clientSecret={paymentModal.clientSecret}
+          amount={paymentModal.amount}
+          currency={paymentModal.currency}
+          onSuccess={async () => {
+            setPaymentModal(null);
+            await executeAgent();
+          }}
+          onCancel={() => setPaymentModal(null)}
+        />
+      )}
 
-      {/* Dynamic form */}
-      <DynamicForm
-        schema={schema}
-        values={formValues}
-        onChange={handleFieldChange}
-        disabled={running}
-      />
+      {subscriptionModal && (
+        <SubscriptionModal
+          agent={agent}
+          clientSecret={subscriptionModal.clientSecret}
+          onSuccess={async () => {
+            setSubscriptionModal(null);
+            onSubscribed();
+            await executeAgent();
+          }}
+          onCancel={() => setSubscriptionModal(null)}
+        />
+      )}
 
-      {/* Run button */}
-      <div className="mt-6">
-        {!accessToken ? (
-          <button
-            onClick={() => signIn()}
-            className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
-          >
-            Sign in to Run
-          </button>
-        ) : (
-          <button
-            onClick={handleRun}
-            disabled={running}
-            className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {running ? (
-              <>
-                <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                Running agent… {elapsed}s
-              </>
-            ) : (
-              '▶ Run Agent'
+      <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-6">
+        <h2 className="mb-4 text-xl font-semibold">Run Agent</h2>
+
+        {agent.pricing_type !== 'free' && (
+          <div className="mb-4 rounded-lg border border-gray-700 bg-gray-800/50 p-3 text-sm text-gray-400">
+            {agent.pricing_type === 'per_use' && (
+              <span>💡 This agent costs <strong className="text-blue-400">${agent.price_per_use} per run</strong>. You&apos;ll be charged after confirming payment.</span>
             )}
-          </button>
+            {agent.pricing_type === 'subscription' && activeSubscription && (
+              <span>✅ Active subscription — run freely until {activeSubscription.current_period_end ? new Date(activeSubscription.current_period_end).toLocaleDateString() : 'end of period'}.</span>
+            )}
+            {agent.pricing_type === 'subscription' && !activeSubscription && (
+              <span>🔄 This agent requires a <strong className="text-purple-400">${agent.monthly_price}/month</strong> subscription.</span>
+            )}
+          </div>
+        )}
+
+        {/* Dynamic form */}
+        <DynamicForm
+          schema={schema}
+          values={formValues}
+          onChange={handleFieldChange}
+          disabled={running}
+        />
+
+        {/* Run button */}
+        <div className="mt-6">
+          {!accessToken ? (
+            <button
+              onClick={() => signIn()}
+              className="w-full rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500"
+            >
+              Sign in to Run
+            </button>
+          ) : (
+            <button
+              onClick={handleRun}
+              disabled={running}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {running ? (
+                <>
+                  <svg className="h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                  </svg>
+                  Running agent… {elapsed}s
+                </>
+              ) : (
+                buttonLabel()
+              )}
+            </button>
+          )}
+        </div>
+
+        {/* Error */}
+        {runError && (
+          <div className="mt-4 rounded-lg border border-red-800 bg-red-900/20 p-4 text-sm text-red-300">
+            {runError}
+          </div>
+        )}
+
+        {/* Result */}
+        {execution && (
+          <div
+            className={`mt-6 rounded-lg border p-4 ${
+              execution.status === 'completed'
+                ? 'border-green-800 bg-green-900/10'
+                : 'border-red-800 bg-red-900/10'
+            }`}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium">Result</span>
+              <div className="flex items-center gap-2">
+                <StatusBadge status={execution.status} />
+                {execution.duration_ms != null && (
+                  <span className="text-xs text-gray-500">
+                    {(execution.duration_ms / 1000).toFixed(1)}s
+                  </span>
+                )}
+              </div>
+            </div>
+            <pre className="overflow-x-auto rounded bg-gray-950 p-3 text-xs leading-relaxed text-gray-300">
+              {JSON.stringify(execution.output_data, null, 2)}
+            </pre>
+          </div>
         )}
       </div>
-
-      {/* Error */}
-      {runError && (
-        <div className="mt-4 rounded-lg border border-red-800 bg-red-900/20 p-4 text-sm text-red-300">
-          {runError}
-        </div>
-      )}
-
-      {/* Result */}
-      {execution && (
-        <div
-          className={`mt-6 rounded-lg border p-4 ${
-            execution.status === 'completed'
-              ? 'border-green-800 bg-green-900/10'
-              : 'border-red-800 bg-red-900/10'
-          }`}
-        >
-          <div className="mb-2 flex items-center justify-between">
-            <span className="text-sm font-medium">Result</span>
-            <div className="flex items-center gap-2">
-              <StatusBadge status={execution.status} />
-              {execution.duration_ms != null && (
-                <span className="text-xs text-gray-500">
-                  {(execution.duration_ms / 1000).toFixed(1)}s
-                </span>
-              )}
-            </div>
-          </div>
-          <pre className="overflow-x-auto rounded bg-gray-950 p-3 text-xs leading-relaxed text-gray-300">
-            {JSON.stringify(execution.output_data, null, 2)}
-          </pre>
-        </div>
-      )}
-    </div>
+    </>
   );
 }
 
@@ -346,6 +664,7 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
   const [agent, setAgent] = useState<Agent | null>(null);
   const [relatedAgents, setRelatedAgents] = useState<Agent[]>([]);
   const [authorAgents, setAuthorAgents] = useState<Agent[]>([]);
+  const [activeSubscription, setActiveSubscription] = useState<Subscription | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -377,6 +696,20 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
     }
     loadAgent();
   }, [id]);
+
+  useEffect(() => {
+    async function checkSubscription() {
+      if (!accessToken || !agent || agent.pricing_type !== 'subscription') return;
+      try {
+        const subs = await api.billing.subscriptions(accessToken);
+        const match = subs.items.find((s) => s.agent_id === agent.id);
+        setActiveSubscription(match ?? null);
+      } catch {
+        // non-critical
+      }
+    }
+    checkSubscription();
+  }, [accessToken, agent]);
 
   if (loading) {
     return (
@@ -455,7 +788,20 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
 
           {/* Execution panel */}
           <div className="mt-8">
-            <ExecutionPanel agent={agent} accessToken={accessToken} />
+            <ExecutionPanel
+              agent={agent}
+              accessToken={accessToken}
+              activeSubscription={activeSubscription}
+              onSubscribed={() => {
+                // Re-fetch subscriptions after subscribing
+                if (accessToken) {
+                  api.billing.subscriptions(accessToken).then((subs) => {
+                    const match = subs.items.find((s) => s.agent_id === agent.id);
+                    setActiveSubscription(match ?? null);
+                  }).catch(() => {});
+                }
+              }}
+            />
           </div>
 
           {/* Related agents */}
@@ -480,14 +826,33 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
         <div className="space-y-6">
           {/* Pricing card */}
           <div className="rounded-xl border border-gray-800 bg-gray-900/50 p-6">
-            <div className="mb-4 text-3xl font-bold text-indigo-400">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-sm font-medium text-gray-400">Pricing</span>
+              {agent.pricing_type === 'free' && (
+                <span className="rounded-full bg-green-900/40 px-2.5 py-0.5 text-xs font-medium text-green-400 border border-green-800">Free</span>
+              )}
+              {agent.pricing_type === 'per_use' && (
+                <span className="rounded-full bg-blue-900/40 px-2.5 py-0.5 text-xs font-medium text-blue-400 border border-blue-800">Pay per use</span>
+              )}
+              {agent.pricing_type === 'subscription' && (
+                <span className="rounded-full bg-purple-900/40 px-2.5 py-0.5 text-xs font-medium text-purple-400 border border-purple-800">Subscription</span>
+              )}
+            </div>
+            <div className="mb-2 text-3xl font-bold text-indigo-400">
               {formatPrice(agent)}
             </div>
-            <p className="text-center text-xs text-gray-500">
+            <p className="text-xs text-gray-500">
               {agent.pricing_type === 'free'
                 ? 'Always free to use'
-                : 'Billed after each successful execution'}
+                : agent.pricing_type === 'per_use'
+                ? 'Charged per execution'
+                : 'Billed monthly · cancel anytime'}
             </p>
+            {agent.pricing_type === 'subscription' && activeSubscription && (
+              <div className="mt-3 rounded-lg border border-green-800 bg-green-900/20 px-3 py-2 text-xs text-green-400">
+                ✅ Active subscription
+              </div>
+            )}
           </div>
 
           {/* Stats */}
@@ -558,3 +923,5 @@ export default function AgentDetailPage({ params }: { params: Promise<{ id: stri
     </div>
   );
 }
+
+

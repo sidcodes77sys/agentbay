@@ -25,6 +25,8 @@ class User(Base):
     display_name = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
     role = Column(SAEnum(UserRole), nullable=False, default=UserRole.user)
+    stripe_customer_id = Column(String, nullable=True)
+    stripe_connect_account_id = Column(String, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
@@ -33,3 +35,5 @@ class User(Base):
     # Relationships
     agents = relationship("Agent", back_populates="author", lazy="dynamic")
     executions = relationship("Execution", back_populates="user", lazy="dynamic")
+    transactions = relationship("Transaction", back_populates="user", lazy="dynamic")
+    subscriptions = relationship("Subscription", back_populates="user", lazy="dynamic")

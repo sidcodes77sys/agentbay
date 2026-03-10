@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     github_client_id: str = ""
     github_client_secret: str = ""
 
+    # Stripe
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
+    platform_fee_percent: float = 20.0
+
     class Config:
         env_file = ".env"
         case_sensitive = False

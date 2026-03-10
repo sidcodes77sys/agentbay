@@ -33,3 +33,4 @@ class Execution(Base):
     # Relationships
     agent = relationship("Agent", back_populates="executions")
     user = relationship("User", back_populates="executions")
+    transaction = relationship("Transaction", back_populates="execution", uselist=False)

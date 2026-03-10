@@ -8,8 +8,10 @@ interface AgentCardProps {
 
 function formatPrice(agent: Agent) {
   if (agent.pricing_type === 'free') return 'Free';
-  if (agent.pricing_type === 'per_use') return `$${agent.price_per_use}/use`;
-  if (agent.pricing_type === 'subscription') return `$${agent.monthly_price}/mo`;
+  if (agent.pricing_type === 'per_use')
+    return agent.price_per_use != null ? `$${agent.price_per_use}/run` : 'Per use';
+  if (agent.pricing_type === 'subscription')
+    return agent.monthly_price != null ? `$${agent.monthly_price}/mo` : 'Subscription';
   return 'Contact';
 }
 
@@ -78,4 +80,5 @@ export function AgentCard({ agent }: AgentCardProps) {
     </Link>
   );
 }
+
 

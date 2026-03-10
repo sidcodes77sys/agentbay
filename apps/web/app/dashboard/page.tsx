@@ -130,6 +130,9 @@ export default function DashboardPage() {
           <p className="mt-2 text-gray-400">Manage your published agents and track performance</p>
         </div>
         <div className="flex items-center gap-3">
+          <Link href="/dashboard/billing" className="text-sm text-indigo-400 hover:text-indigo-300">
+            Billing →
+          </Link>
           <Link href="/dashboard/executions" className="text-sm text-indigo-400 hover:text-indigo-300">
             Execution History →
           </Link>

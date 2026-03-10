@@ -81,6 +81,27 @@ export interface CategoryStatsResponse {
   stats: Record<string, number>;
 }
 
+export type ExecutionStatus = 'pending' | 'running' | 'completed' | 'failed';
+
+export interface Execution {
+  id: string;
+  agent_id: string;
+  user_id: string;
+  input_data: Record<string, unknown>;
+  output_data?: Record<string, unknown> | null;
+  status: ExecutionStatus;
+  duration_ms?: number | null;
+  created_at: string;
+  agent_name?: string | null;
+}
+
+export interface ExecutionList {
+  items: Execution[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
 async function apiFetch<T>(
   path: string,
   options?: RequestInit & { accessToken?: string }
@@ -141,5 +162,33 @@ export const api = {
       apiFetch<void>(`/api/agents/${id}`, { method: 'DELETE', accessToken }),
     categoryStats: () =>
       apiFetch<CategoryStatsResponse>('/api/agents/categories/stats'),
+    agentExecutions: (agentId: string, accessToken: string, params?: { skip?: number; limit?: number; page?: number }) => {
+      const qs = new URLSearchParams(
+        Object.entries(params ?? {}).reduce<Record<string, string>>(
+          (acc, [k, v]) => (v !== undefined && v !== null ? { ...acc, [k]: String(v) } : acc),
+          {}
+        )
+      ).toString();
+      return apiFetch<ExecutionList>(`/api/agents/${agentId}/executions${qs ? `?${qs}` : ''}`, { accessToken });
+    },
+  },
+  executions: {
+    run: (agentId: string, inputData: Record<string, unknown>, accessToken: string) =>
+      apiFetch<Execution>(`/api/execute/${agentId}`, {
+        method: 'POST',
+        body: JSON.stringify({ input_data: inputData }),
+        accessToken,
+      }),
+    list: (accessToken: string, params?: { agent_id?: string; skip?: number; limit?: number; page?: number }) => {
+      const qs = new URLSearchParams(
+        Object.entries(params ?? {}).reduce<Record<string, string>>(
+          (acc, [k, v]) => (v !== undefined && v !== null ? { ...acc, [k]: String(v) } : acc),
+          {}
+        )
+      ).toString();
+      return apiFetch<ExecutionList>(`/api/executions${qs ? `?${qs}` : ''}`, { accessToken });
+    },
+    get: (executionId: string, accessToken: string) =>
+      apiFetch<Execution>(`/api/executions/${executionId}`, { accessToken }),
   },
 };

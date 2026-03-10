@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
-import { api, type Agent } from '@/lib/api';
+import { api, type Agent, type Execution } from '@/lib/api';
 
 function DeleteModal({
   agent,
@@ -52,6 +52,7 @@ export default function DashboardPage() {
   const [error, setError] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [actionError, setActionError] = useState('');
+  const [recentExecutions, setRecentExecutions] = useState<Execution[]>([]);
 
   const fetchAgents = useCallback(async () => {
     if (!accessToken) return;
@@ -65,9 +66,20 @@ export default function DashboardPage() {
     }
   }, [accessToken]);
 
+  const fetchRecentExecutions = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const data = await api.executions.list(accessToken, { limit: 5, page: 1 });
+      setRecentExecutions(data.items);
+    } catch {
+      // non-critical — silently ignore
+    }
+  }, [accessToken]);
+
   useEffect(() => {
     fetchAgents();
-  }, [fetchAgents]);
+    fetchRecentExecutions();
+  }, [fetchAgents, fetchRecentExecutions]);
 
   async function handleDelete(agent: Agent) {
     if (!accessToken) return;
@@ -117,9 +129,14 @@ export default function DashboardPage() {
           <h1 className="text-4xl font-bold">Developer Dashboard</h1>
           <p className="mt-2 text-gray-400">Manage your published agents and track performance</p>
         </div>
-        <Link href="/agents/publish">
-          <Button>+ Publish New Agent</Button>
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link href="/dashboard/executions" className="text-sm text-indigo-400 hover:text-indigo-300">
+            Execution History →
+          </Link>
+          <Link href="/agents/publish">
+            <Button>+ Publish New Agent</Button>
+          </Link>
+        </div>
       </div>
 
       {actionError && (
@@ -222,6 +239,55 @@ export default function DashboardPage() {
             <Link href="/agents/publish">
               <Button>Publish New Agent</Button>
             </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Recent Executions */}
+      {recentExecutions.length > 0 && (
+        <div className="mt-12">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-semibold">Recent Executions</h2>
+            <Link href="/dashboard/executions" className="text-sm text-indigo-400 hover:text-indigo-300">
+              View all →
+            </Link>
+          </div>
+          <div className="rounded-xl border border-gray-800 bg-gray-900/50">
+            <div className="divide-y divide-gray-800">
+              {recentExecutions.map((exec) => (
+                <div key={exec.id} className="flex items-center justify-between px-6 py-4">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">
+                      {exec.agent_name ?? exec.agent_id.slice(0, 8) + '…'}
+                    </p>
+                    <p className="mt-0.5 truncate font-mono text-xs text-gray-500">
+                      {JSON.stringify(exec.input_data).slice(0, 60)}
+                    </p>
+                  </div>
+                  <div className="ml-4 flex items-center gap-3 text-sm text-gray-400">
+                    <span
+                      className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${
+                        exec.status === 'completed'
+                          ? 'border-green-800 bg-green-900/40 text-green-400'
+                          : exec.status === 'failed'
+                          ? 'border-red-800 bg-red-900/40 text-red-400'
+                          : exec.status === 'running'
+                          ? 'border-blue-800 bg-blue-900/40 text-blue-400'
+                          : 'border-yellow-800 bg-yellow-900/40 text-yellow-400'
+                      }`}
+                    >
+                      {exec.status}
+                    </span>
+                    {exec.duration_ms != null && (
+                      <span className="text-xs">{(exec.duration_ms / 1000).toFixed(1)}s</span>
+                    )}
+                    <span className="hidden text-xs sm:inline">
+                      {new Date(exec.created_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

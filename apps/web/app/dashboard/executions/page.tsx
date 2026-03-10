@@ -25,9 +25,10 @@ function StatusBadge({ status }: { status: ExecutionStatus }) {
   };
   return (
     <span
+      aria-label={`Status: ${status}`}
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${classes[status]}`}
     >
-      {icons[status]} {status}
+      <span aria-hidden="true">{icons[status]}</span> {status}
     </span>
   );
 }

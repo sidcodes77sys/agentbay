@@ -188,9 +188,10 @@ function StatusBadge({ status }: { status: Execution['status'] }) {
   };
   return (
     <span
+      aria-label={`Status: ${status}`}
       className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${classes[status] ?? classes.pending}`}
     >
-      {icons[status]} {status}
+      <span aria-hidden="true">{icons[status]}</span> {status}
     </span>
   );
 }
@@ -244,7 +245,14 @@ export function AgentRunPanel({ agent }: { agent: Agent }) {
     const errors: string[] = [];
     for (const field of requiredFields) {
       const val = formValues[field];
-      if (val === undefined || val === null || val === '') {
+      const fieldType = properties[field]?.type;
+      // For boolean fields, any value (including false) is considered provided.
+      // For number fields, 0 is a valid value — only empty string means missing.
+      const isMissing =
+        val === undefined ||
+        val === null ||
+        (fieldType !== 'boolean' && val === '');
+      if (isMissing) {
         const label = (properties[field]?.description || field);
         errors.push(`'${label}' is required`);
       }

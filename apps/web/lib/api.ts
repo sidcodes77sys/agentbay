@@ -149,10 +149,9 @@ export const api = {
   agents: {
     list: (params?: AgentsListParams) => {
       const qs = new URLSearchParams(
-        Object.entries(params ?? {}).reduce<Record<string, string>>(
-          (acc, [k, v]) => (v !== undefined && v !== null && v !== '' ? { ...acc, [k]: String(v) } : acc),
-          {}
-        )
+        Object.entries(params ?? {})
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => [k, String(v)])
       ).toString();
       return apiFetch<AgentsListResponse>(`/api/agents${qs ? `?${qs}` : ''}`);
     },
@@ -186,10 +185,9 @@ export const api = {
       }),
     list: (params: ExecutionListParams, accessToken: string) => {
       const qs = new URLSearchParams(
-        Object.entries(params).reduce<Record<string, string>>(
-          (acc, [k, v]) => (v !== undefined && v !== null && v !== '' ? { ...acc, [k]: String(v) } : acc),
-          {}
-        )
+        Object.entries(params)
+          .filter(([, v]) => v !== undefined && v !== null && v !== '')
+          .map(([k, v]) => [k, String(v)])
       ).toString();
       return apiFetch<ExecutionListResponse>(`/api/executions${qs ? `?${qs}` : ''}`, { accessToken });
     },
